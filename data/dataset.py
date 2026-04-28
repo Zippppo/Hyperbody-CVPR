@@ -11,7 +11,14 @@ from data.voxelizer import pad_labels, voxelize_point_cloud
 
 
 class HyperBodyDataset(Dataset):
-    def __init__(self, data_dir: str, split_file: str, split: str, volume_size: tuple):
+    def __init__(
+        self,
+        data_dir: str,
+        split_file: str,
+        split: str,
+        volume_size: tuple,
+        label_pad_value: int = 0,
+    ):
         """
         Args:
             data_dir: path to Dataset/voxel_data/
@@ -28,6 +35,7 @@ class HyperBodyDataset(Dataset):
         self.filenames = splits[split]
         self.data_dir = data_dir
         self.volume_size = volume_size
+        self.label_pad_value = label_pad_value
 
     def __len__(self):
         return len(self.filenames)
@@ -45,7 +53,11 @@ class HyperBodyDataset(Dataset):
         )
 
         # Pad labels -> (X, Y, Z) int64
-        labels = pad_labels(data["voxel_labels"], self.volume_size)
+        labels = pad_labels(
+            data["voxel_labels"],
+            self.volume_size,
+            fill_value=self.label_pad_value,
+        )
 
         # Convert to tensors: input has channel dim (1, X, Y, Z)
         inp = torch.from_numpy(occupancy).unsqueeze(0)

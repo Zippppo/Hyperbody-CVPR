@@ -66,6 +66,8 @@ class Config:
     ce_weight: float = 0.5
     dice_weight: float = 0.5
     dice_ignore_index: Optional[int] = None
+    target_ignore_index: Optional[int] = None
+    label_pad_value: Optional[int] = None
     hyp_weight: float = 0.05      # Loss weight
 
     # LR scheduler

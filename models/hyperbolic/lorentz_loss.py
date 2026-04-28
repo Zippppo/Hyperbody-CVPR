@@ -29,6 +29,14 @@ def _normalize_sampling_weights(weights: Tensor, neg_mask: Tensor) -> Tensor:
     return probs / row_sums.clamp(min=1e-8)
 
 
+def _filter_valid_voxels(voxel_flat: Tensor, labels_flat: Tensor, num_classes: int):
+    """Drop ignore/out-of-range labels before class-indexed sampling."""
+    valid = (labels_flat >= 0) & (labels_flat < num_classes)
+    if valid.all():
+        return voxel_flat, labels_flat
+    return voxel_flat[valid], labels_flat[valid]
+
+
 class LorentzRankingLoss(nn.Module):
     """
     Triplet ranking loss in Lorentz hyperbolic space.
@@ -133,9 +141,14 @@ class LorentzRankingLoss(nn.Module):
             # Reshape: (B, C, D, H, W) -> (N, C) where N = B*D*H*W
             voxel_flat = voxel_emb.permute(0, 2, 3, 4, 1).reshape(-1, C)  # (N, C)
             labels_flat = labels.reshape(-1)  # (N)
+            voxel_flat, labels_flat = _filter_valid_voxels(
+                voxel_flat, labels_flat, num_classes
+            )
 
             # Fully vectorized sampling: sample up to num_samples_per_class per class
             N = labels_flat.shape[0]
+            if N == 0:
+                return torch.tensor(0.0, device=device, requires_grad=True)
 
             # Create random priorities for sampling
             random_priorities = torch.rand(N, device=device)
@@ -358,9 +371,14 @@ class LorentzTreeRankingLoss(nn.Module):
             # Reshape: (B, C, D, H, W) -> (N, C) where N = B*D*H*W
             voxel_flat = voxel_emb.permute(0, 2, 3, 4, 1).reshape(-1, C)  # (N, C)
             labels_flat = labels.reshape(-1)  # (N)
+            voxel_flat, labels_flat = _filter_valid_voxels(
+                voxel_flat, labels_flat, num_classes
+            )
 
             # Fully vectorized sampling: sample up to num_samples_per_class per class
             N = labels_flat.shape[0]
+            if N == 0:
+                return torch.tensor(0.0, device=device, requires_grad=True)
 
             # Create random priorities for sampling
             random_priorities = torch.rand(N, device=device)

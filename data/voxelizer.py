@@ -36,17 +36,19 @@ def voxelize_point_cloud(
 def pad_labels(
     voxel_labels: np.ndarray,
     volume_size: tuple,
+    fill_value: int = 0,
 ) -> np.ndarray:
     """Crop and/or pad voxel labels to fixed volume size.
 
     Args:
         voxel_labels: (X, Y, Z) uint8, variable size
         volume_size: (X, Y, Z) target shape
+        fill_value: Label value used for padded voxels
 
     Returns:
         Cropped/padded labels, shape=volume_size, dtype=int64
     """
-    padded = np.zeros(volume_size, dtype=np.int64)
+    padded = np.full(volume_size, fill_value, dtype=np.int64)
     x, y, z = voxel_labels.shape
     # 取输入和目标的最小值，实现裁剪
     cx, cy, cz = min(x, volume_size[0]), min(y, volume_size[1]), min(z, volume_size[2])

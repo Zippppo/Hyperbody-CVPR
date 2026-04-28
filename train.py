@@ -310,8 +310,21 @@ def main():
 
     # Datasets
     logger.info("Loading datasets...")
-    train_dataset = HyperBodyDataset(cfg.data_dir, cfg.split_file, "train", cfg.volume_size)
-    val_dataset = HyperBodyDataset(cfg.data_dir, cfg.split_file, "val", cfg.volume_size)
+    label_pad_value = cfg.label_pad_value if cfg.label_pad_value is not None else 0
+    train_dataset = HyperBodyDataset(
+        cfg.data_dir,
+        cfg.split_file,
+        "train",
+        cfg.volume_size,
+        label_pad_value=label_pad_value,
+    )
+    val_dataset = HyperBodyDataset(
+        cfg.data_dir,
+        cfg.split_file,
+        "val",
+        cfg.volume_size,
+        label_pad_value=label_pad_value,
+    )
     logger.info(f"Train samples: {len(train_dataset)}, Val samples: {len(val_dataset)}")
 
     # Create samplers for distributed training
@@ -343,8 +356,22 @@ def main():
         logger.info(f"Loading cached class weights from {class_weights_cache}")
     else:
         logger.info("Computing class weights from 100 samples (will be cached)...")
+    dataset_signature = "|".join([
+        f"data={cfg.data_dir}",
+        f"split={cfg.split_file}",
+        f"split_mtime={os.path.getmtime(cfg.split_file):.0f}",
+        f"info={cfg.dataset_info_file}",
+        f"info_mtime={os.path.getmtime(cfg.dataset_info_file):.0f}",
+        f"volume={tuple(cfg.volume_size)}",
+        f"label_pad={label_pad_value}",
+    ])
     class_weights = compute_class_weights(
-        train_dataset, cfg.num_classes, num_samples=100, cache_path=class_weights_cache
+        train_dataset,
+        cfg.num_classes,
+        num_samples=100,
+        cache_path=class_weights_cache,
+        target_ignore_index=cfg.target_ignore_index,
+        dataset_signature=dataset_signature,
     )
     class_weights = class_weights.to(device)
     logger.info(f"Class weights range: [{class_weights.min():.4f}, {class_weights.max():.4f}]")
@@ -391,9 +418,12 @@ def main():
         dice_weight=cfg.dice_weight,
         class_weights=class_weights,
         dice_ignore_index=cfg.dice_ignore_index,
+        target_ignore_index=cfg.target_ignore_index,
     )
     if cfg.dice_ignore_index is not None:
         logger.info(f"Dice loss ignoring class {cfg.dice_ignore_index}")
+    if cfg.target_ignore_index is not None:
+        logger.info(f"Target voxels with label {cfg.target_ignore_index} are ignored")
 
     # Hyperbolic ranking loss (with Curriculum Negative Mining)
     # Choose loss class based on hyp_distance_mode config
@@ -512,7 +542,10 @@ def main():
     logger.info(f"AMP enabled: {cfg.use_amp}")
 
     # Metrics
-    metric = DiceMetric(num_classes=cfg.num_classes)
+    metric = DiceMetric(
+        num_classes=cfg.num_classes,
+        target_ignore_index=cfg.target_ignore_index,
+    )
 
     # Resume from checkpoint
     start_epoch = 0

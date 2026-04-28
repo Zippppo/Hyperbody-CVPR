@@ -5,14 +5,21 @@ from typing import Tuple, Optional
 class DiceMetric:
     """Accumulate per-class Dice scores across batches (GPU-optimized)"""
 
-    def __init__(self, num_classes: int = 70, smooth: float = 1e-5):
+    def __init__(
+        self,
+        num_classes: int = 70,
+        smooth: float = 1e-5,
+        target_ignore_index: Optional[int] = None,
+    ):
         """
         Args:
             num_classes: Number of segmentation classes
             smooth: Smoothing factor to avoid division by zero
+            target_ignore_index: Voxel label value excluded from all counts
         """
         self.num_classes = num_classes
         self.smooth = smooth
+        self.target_ignore_index = target_ignore_index
         # Accumulators initialized lazily to inherit device from input
         self._intersection = None
         self._pred_sum = None
@@ -77,6 +84,10 @@ class DiceMetric:
         # Flatten to 1D for bincount
         preds_flat = preds.view(-1)
         targets_flat = targets.view(-1)
+        if self.target_ignore_index is not None:
+            keep = targets_flat != self.target_ignore_index
+            preds_flat = preds_flat[keep]
+            targets_flat = targets_flat[keep]
 
         # Compute per-class statistics using bincount (vectorized, no Python loop)
         # pred_sum[c] = count of pixels predicted as class c
