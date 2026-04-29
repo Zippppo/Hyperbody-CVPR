@@ -1,17 +1,16 @@
 """
 Visualization script for prediction results.
 
-Usage:
-    python eval/vis/vis_pred.py --pred_dir eval/pred/lorentz_semantic --gt_dir Dataset/voxel_data --compare --output_dir docs/visualizations/pred_vis/baseline/
-    python eval/vis/vis_pred.py --pred_dir eval/pred/lorentz_semantic --gt_dir Dataset/voxel_data --compare --output_dir docs/visualizations/pred_vis/semantic_vis/
-    python eval/vis/vis_pred.py --pred_dir eval/pred/lorentz_random --gt_dir Dataset/voxel_data --compare --output_dir docs/visualizations/pred_vis/random_vis/
-    python eval/vis/vis_pred.py --pred_dir eval/pred/L_R_FZ+cls0_0.1 --gt_dir Dataset/voxel_data --compare --output_dir docs/visualizations/pred_vis/L_R_FZ+cls0_0.1/
-    python eval/vis/vis_pred.py --pred_dir eval/pred/L_S_FZ+cls0_0.1 --gt_dir Dataset/voxel_data --compare --output_dir docs/visualizations/pred_vis/L_S_FZ+cls0_0.1/
+This script supports the S2I 121-label setup (class 0 = inside_body_empty, classes 1-120 = anatomical foreground).
+Default --dataset_info / --gt_dir point at S2I_Dataset, matching eval/eval_120cls.py outputs.
 
-python eval/vis/vis_pred.py --pred_dir eval/pred/LR-GD-M04-LRP3 --gt_dir Dataset/voxel_data --compare --output_dir docs/visualizations/pred_vis/0209-LR-GD-M04-LRP3/
-python eval/vis/vis_pred.py --pred_dir eval/pred/vis_best --gt_dir Dataset/voxel_data --compare --output_dir docs/visualizations/pred_vis/vis_best
+Usage (S2I 120-class, current):
+    python eval/vis/vis_pred.py --pred_dir eval/pred/s2i_120cls_epoch45 --compare --output_dir docs/visualizations/pred_vis/s2i_120cls_epoch45/
+    python eval/vis/vis_pred.py --pred_dir eval/pred/s2i_120cls_epoch45 --sample BDMAP_00000001.npz --compare --output_dir docs/visualizations/pred_vis/s2i_120cls_epoch45/
 
-
+Usage (legacy 70-class, override defaults):
+    python eval/vis/vis_pred.py --pred_dir eval/pred/lorentz_semantic --gt_dir Dataset/voxel_data --dataset_info Dataset/dataset_info.json --compare --output_dir docs/visualizations/pred_vis/baseline/
+    python eval/vis/vis_pred.py --pred_dir eval/pred/vis_best --gt_dir Dataset/voxel_data --dataset_info Dataset/dataset_info.json --compare --output_dir docs/visualizations/pred_vis/vis_best
 """
 import argparse
 import json
@@ -19,24 +18,97 @@ import os
 
 import numpy as np
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from tqdm import tqdm
 
+
+# JS injected into comparison HTML so the GT and Pred scenes share a camera.
+# Passed as `post_script` to fig.write_html — Plotly already wraps this in a
+# <script> block guarded by `if (document.getElementById("<plot_id>"))`, so we
+# only need the raw JS body (no <script> tags, no IIFE required).
+_CAMERA_SYNC_JS = """
+var __gd = document.getElementsByClassName('plotly-graph-div')[0];
+if (__gd) {
+    var __syncing = false;
+    __gd.on('plotly_relayout', function(eventData) {
+        if (__syncing) return;
+        var keys = Object.keys(eventData || {});
+        var src = null, dst = null;
+        if (keys.some(function(k){ return k.indexOf('scene.camera') === 0; })) {
+            src = __gd.layout.scene && __gd.layout.scene.camera; dst = 'scene2';
+        } else if (keys.some(function(k){ return k.indexOf('scene2.camera') === 0; })) {
+            src = __gd.layout.scene2 && __gd.layout.scene2.camera; dst = 'scene';
+        }
+        if (src && dst) {
+            __syncing = true;
+            var upd = {}; upd[dst + '.camera'] = src;
+            Plotly.relayout(__gd, upd).then(function(){ __syncing = false; });
+        }
+    });
+}
+"""
+
+
+# --- Anatomy groups for the S2I 121-label setup --------------------------------
+# Class 0 = inside_body_empty; classes 1-120 are foreground anatomical labels.
+# These lists use the exact names from S2I_Dataset/dataset_info.json. Names not
+# present in the loaded dataset_info are silently dropped by
+# get_system_class_indices(), so legacy 70-class runs (which use "spine"/"lung")
+# still work as long as you pass --dataset_info Dataset/dataset_info.json.
+
+_VERTEBRAE = (
+    [f"vertebrae_C{i}" for i in range(1, 8)]
+    + [f"vertebrae_T{i}" for i in range(1, 13)]
+    + [f"vertebrae_L{i}" for i in range(1, 6)]
+    + ["vertebrae_S1", "sacrum"]
+)
+
+_LUNG_LOBES = [
+    "lung_upper_lobe_left", "lung_lower_lobe_left",
+    "lung_upper_lobe_right", "lung_middle_lobe_right", "lung_lower_lobe_right",
+]
+
+_ARTERIES = [
+    "aorta", "brachiocephalic_trunk", "coronary_arteries",
+    "subclavian_artery_left", "subclavian_artery_right",
+    "common_carotid_artery_left", "common_carotid_artery_right",
+    "iliac_artery_left", "iliac_artery_right",
+]
+
+_VEINS = [
+    "pulmonary_vein", "atrial_appendage_left",
+    "inferior_vena_cava", "superior_vena_cava",
+    "portal_vein_and_splenic_vein",
+    "brachiocephalic_vein_left", "brachiocephalic_vein_right",
+    "iliac_vena_left", "iliac_vena_right",
+]
+
+_FAT_AND_MUSCLE_BULK = [
+    "subcutaneous_fat", "torso_fat", "intermuscular_fat", "skeletal_muscle",
+]
+
+_RIB_LEFT = [f"rib_left_{i}" for i in range(1, 13)]
+_RIB_RIGHT = [f"rib_right_{i}" for i in range(1, 13)]
 
 # Organ system definitions for filtering
 ORGAN_SYSTEMS = {
     "All": None,  # Show all
+    # Skeletal: keeps legacy "spine"/"lung" names so 70-class data still groups
+    # correctly, and adds the 120-class vertebrae expansion.
     "Skeletal": [
         "spine", "skull", "sternum", "costal_cartilages",
         "scapula_left", "scapula_right", "clavicula_left", "clavicula_right",
         "humerus_left", "humerus_right", "hip_left", "hip_right",
         "femur_left", "femur_right",
-    ] + [f"rib_left_{i}" for i in range(1, 13)] + [f"rib_right_{i}" for i in range(1, 13)],
+    ] + _VERTEBRAE + _RIB_LEFT + _RIB_RIGHT,
+    "Vertebrae": _VERTEBRAE,
     "Organs": [
         "liver", "spleen", "kidney_left", "kidney_right", "stomach", "pancreas",
         "gallbladder", "urinary_bladder", "prostate", "heart", "brain",
-        "thyroid_gland", "lung", "esophagus", "trachea",
+        "thyroid_gland", "spinal_cord", "lung", "esophagus", "trachea",
         "adrenal_gland_left", "adrenal_gland_right",
-    ],
+    ] + _LUNG_LOBES,
+    "Lungs (Lobes)": _LUNG_LOBES,
     "Digestive": [
         "liver", "stomach", "pancreas", "gallbladder", "esophagus",
         "small_bowel", "duodenum", "colon",
@@ -48,9 +120,13 @@ ORGAN_SYSTEMS = {
         "autochthon_left", "autochthon_right",
         "iliopsoas_left", "iliopsoas_right",
     ],
-    "Ribs (All)": [f"rib_left_{i}" for i in range(1, 13)] + [f"rib_right_{i}" for i in range(1, 13)],
-    "Ribs Left": [f"rib_left_{i}" for i in range(1, 13)],
-    "Ribs Right": [f"rib_right_{i}" for i in range(1, 13)],
+    "Vascular (All)": _ARTERIES + _VEINS,
+    "Vascular - Arteries": _ARTERIES,
+    "Vascular - Veins": _VEINS,
+    "Soft Tissue / Fat": _FAT_AND_MUSCLE_BULK,
+    "Ribs (All)": _RIB_LEFT + _RIB_RIGHT,
+    "Ribs Left": _RIB_LEFT,
+    "Ribs Right": _RIB_RIGHT,
 }
 
 # Individual rib pairs
@@ -80,8 +156,8 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Visualize prediction results")
     parser.add_argument("--pred_dir", type=str, default="eval/pred/baseline",
                         help="Directory containing prediction .npz files")
-    parser.add_argument("--gt_dir", type=str, default="Dataset/voxel_data",
-                        help="Directory containing ground truth .npz files")
+    parser.add_argument("--gt_dir", type=str, default="S2I_Dataset/train",
+                        help="Directory containing ground truth .npz files (S2I_Dataset/train for 120-class, Dataset/voxel_data for legacy 70-class)")
     parser.add_argument("--output_dir", type=str, default="docs/visualizations",
                         help="Output directory for HTML visualizations")
     parser.add_argument("--sample", type=str, default=None,
@@ -92,8 +168,8 @@ def parse_args():
                         help="Maximum number of samples to visualize (when --sample is not set)")
     parser.add_argument("--max_points", type=int, default=50000,
                         help="Maximum points to render per organ system")
-    parser.add_argument("--dataset_info", type=str, default="Dataset/dataset_info.json",
-                        help="Path to dataset info JSON for class names")
+    parser.add_argument("--dataset_info", type=str, default="S2I_Dataset/dataset_info.json",
+                        help="Path to dataset info JSON for class names (S2I_Dataset/dataset_info.json = 121 labels, Dataset/dataset_info.json = legacy 70)")
     return parser.parse_args()
 
 
@@ -150,13 +226,21 @@ def is_rib_system(system_name):
 def create_trace_for_system(labels_3d, grid_world_min, voxel_size, class_names,
                             system_name, system_indices, max_points, trace_name):
     """Create a Scatter3d trace for a specific organ system."""
+    # Drop labels outside the foreground range (0 = inside_body_empty,
+    # 255 = outside_body_background in S2I, plus any other ignore/pad value).
+    # Without this, "All" includes ignore voxels and class_names[label] crashes.
+    num_classes = len(class_names)
+    valid_mask = (labels_3d > 0) & (labels_3d < num_classes)
+
     # Filter by system
     if system_indices is None:
-        # All non-zero voxels
-        mask = labels_3d > 0
+        # All foreground voxels with valid labels
+        mask = valid_mask
     else:
-        # Vectorized: check if each voxel's class is in system_indices
-        mask = np.isin(labels_3d, list(system_indices))
+        # Vectorized: check if each voxel's class is in system_indices.
+        # np.isin already excludes out-of-range values since they're not in
+        # system_indices, but AND with valid_mask keeps the contract explicit.
+        mask = np.isin(labels_3d, list(system_indices)) & valid_mask
 
     voxel_idx = np.argwhere(mask)
     if len(voxel_idx) == 0:
@@ -308,8 +392,25 @@ def visualize_prediction(pred_path, output_path, class_names, max_points):
     return output_path
 
 
+def _empty_trace(name, visible):
+    """Placeholder trace so visibility-button indices stay aligned when a system is empty."""
+    return go.Scatter3d(
+        x=[], y=[], z=[], mode="markers",
+        marker=dict(size=2),
+        name=name,
+        visible=visible,
+        showlegend=False,
+        hoverinfo="skip",
+    )
+
+
 def visualize_comparison(pred_path, gt_path, output_path, class_names, max_points):
-    """Visualize prediction vs ground truth with organ system selector."""
+    """Visualize prediction vs ground truth in two independent 3D scenes (side-by-side).
+
+    GT goes into the left scene, Pred into the right scene. Each scene rotates/zooms
+    independently in plotly, but a small JS snippet (_CAMERA_SYNC_JS) is appended to
+    the HTML so cameras stay mirrored for easier visual comparison.
+    """
     pred_data = np.load(pred_path)
     gt_data = np.load(gt_path)
 
@@ -318,48 +419,68 @@ def visualize_comparison(pred_path, gt_path, output_path, class_names, max_point
     grid_world_min = pred_data["grid_world_min"]
     voxel_size = pred_data["grid_voxel_size"]
 
-    # Create traces for GT and Pred for each system
-    all_traces = []
+    fig = make_subplots(
+        rows=1, cols=2,
+        specs=[[{"type": "scene"}, {"type": "scene"}]],
+        subplot_titles=("Ground Truth", "Prediction"),
+        horizontal_spacing=0.02,
+    )
+
     system_names = list(ORGAN_SYSTEMS.keys())
 
+    # Trace order in fig.data is interleaved: [GT_0, Pred_0, GT_1, Pred_1, ...]
+    # so the button at index i flips visibility[2*i] and visibility[2*i + 1].
     for system_name, system_organs in ORGAN_SYSTEMS.items():
         system_indices = get_system_class_indices(class_names, system_organs)
+        default_visible = (system_name == "All")
 
-        # GT trace
-        gt_trace, gt_count = create_trace_for_system(
+        gt_trace, _ = create_trace_for_system(
             gt_labels, grid_world_min, voxel_size, class_names,
             system_name, system_indices, max_points, f"GT - {system_name}"
         )
-        # Pred trace
-        pred_trace, pred_count = create_trace_for_system(
+        pred_trace, _ = create_trace_for_system(
             pred_labels, grid_world_min, voxel_size, class_names,
             system_name, system_indices, max_points, f"Pred - {system_name}"
         )
 
-        if gt_trace is not None:
-            all_traces.append(gt_trace)
-        if pred_trace is not None:
-            # Offset prediction to the right for side-by-side view
-            x_offset = (grid_world_min[0] + pred_labels.shape[0] * voxel_size[0]) * 1.2
-            pred_trace.x = tuple(x + x_offset for x in pred_trace.x)
-            all_traces.append(pred_trace)
+        if gt_trace is None:
+            gt_trace = _empty_trace(f"GT - {system_name}", default_visible)
+        if pred_trace is None:
+            pred_trace = _empty_trace(f"Pred - {system_name}", default_visible)
 
-    # Create visibility buttons (show both GT and Pred for each system)
-    buttons = []
+        fig.add_trace(gt_trace, row=1, col=1)
+        fig.add_trace(pred_trace, row=1, col=2)
+
+    # Visibility buttons: each button shows one system's GT (scene 1) + Pred (scene 2).
     num_systems = len(system_names)
+    buttons = []
     for i, system_name in enumerate(system_names):
         visibility = [False] * (num_systems * 2)
-        visibility[i * 2] = True      # GT trace
-        visibility[i * 2 + 1] = True  # Pred trace
+        visibility[i * 2] = True      # GT trace in scene
+        visibility[i * 2 + 1] = True  # Pred trace in scene2
         buttons.append(dict(
             label=system_name,
             method="update",
             args=[{"visible": visibility}],
         ))
 
-    fig = go.Figure(data=all_traces)
-
+    sample_name = os.path.basename(pred_path).replace(".npz", "")
+    scene_kwargs = dict(
+        xaxis_title="X (mm)",
+        yaxis_title="Y (mm)",
+        zaxis_title="Z (mm)",
+        aspectmode="data",
+    )
     fig.update_layout(
+        title=(
+            f"Comparison: {sample_name}<br>"
+            "Left: Ground Truth | Right: Prediction "
+            "(cameras synchronized; select organ system from dropdown)"
+        ),
+        width=1600,
+        height=820,
+        scene=scene_kwargs,
+        scene2=scene_kwargs,
         updatemenus=[dict(
             active=0,
             buttons=buttons,
@@ -367,27 +488,15 @@ def visualize_comparison(pred_path, gt_path, output_path, class_names, max_point
             showactive=True,
             x=0.02,
             xanchor="left",
-            y=1.15,
+            y=1.12,
             yanchor="top",
         )],
+        showlegend=False,
     )
 
-    sample_name = os.path.basename(pred_path).replace(".npz", "")
-    fig.update_layout(
-        title=f"Comparison: {sample_name}<br>Left: Ground Truth | Right: Prediction<br>Select organ system from dropdown",
-        width=1400,
-        height=800,
-        scene=dict(
-            xaxis_title="X (mm)",
-            yaxis_title="Y (mm)",
-            zaxis_title="Z (mm)",
-            aspectmode="data",
-        ),
-        showlegend=True,
-        legend=dict(x=0.85, y=0.95),
-    )
-
-    fig.write_html(output_path)
+    # write_html accepts a post_script that runs after Plotly initializes the figure,
+    # which is where the camera-sync hook attaches.
+    fig.write_html(output_path, post_script=_CAMERA_SYNC_JS)
     return output_path
 
 

@@ -3,6 +3,7 @@ import logging
 import os
 import sys
 
+import numpy as np
 import pytest
 import torch
 
@@ -58,8 +59,11 @@ def test_s2i_stage_b_final_config_matches_graph_random_training_shape():
     assert cfg.num_classes == 121
     assert cfg.volume_size == source.volume_size
 
-    assert cfg.target_ignore_index == 255
-    assert cfg.label_pad_value == 255
+    # Final S2I semantics match the original single-empty-class setup:
+    # raw 255 outside-body voxels are folded into class 0 at load time.
+    assert cfg.target_ignore_index is None
+    assert cfg.label_pad_value == 0
+    assert cfg.outside_label == 255
     assert cfg.dice_ignore_index == 0
 
     assert cfg.hyp_distance_mode == "graph"
@@ -81,7 +85,6 @@ def test_s2i_stage_b_final_config_matches_graph_random_training_shape():
         "hyp_max_radius",
         "hyp_text_lr_ratio",
         "hyp_text_grad_clip",
-        "batch_size",
         "num_workers",
         "epochs",
         "lr",
@@ -99,6 +102,7 @@ def test_s2i_stage_b_final_config_matches_graph_random_training_shape():
         "lr_phase2_min",
     ):
         assert getattr(cfg, field) == getattr(source, field), field
+    assert cfg.batch_size == 3
 
 
 def test_s2i_stage_b_resources_are_consistent_with_config_and_class_names():
@@ -115,7 +119,7 @@ def test_s2i_stage_b_resources_are_consistent_with_config_and_class_names():
 
     assert dataset_info["num_classes"] == cfg.num_classes == len(class_names)
     assert dataset_info["special_labels"]["inside_body_empty"] == 0
-    assert dataset_info["special_labels"]["outside_body_background"] == cfg.target_ignore_index
+    assert dataset_info["special_labels"]["outside_body_background"] == cfg.outside_label
     assert _tree_leaves(tree) == set(class_names)
 
     for path in (cfg.split_file, cfg.graph_distance_matrix, "S2I_Dataset/contact_matrix.pt"):
@@ -135,7 +139,7 @@ def test_s2i_stage_b_resources_are_consistent_with_config_and_class_names():
     assert torch.equal(contact.diag(), torch.zeros(cfg.num_classes))
 
 
-def test_s2i_stage_b_precomputed_class_weights_metadata_matches_ignore_semantics():
+def test_s2i_stage_b_precomputed_class_weights_resource_is_finite():
     from config import Config
 
     cfg = Config.from_yaml("configs/s2i_021201-19.yaml")
@@ -143,6 +147,42 @@ def test_s2i_stage_b_precomputed_class_weights_metadata_matches_ignore_semantics
 
     assert payload["num_classes"] == cfg.num_classes
     assert payload["dataset"] == cfg.data_dir
-    assert payload["ignore_index"] == cfg.target_ignore_index
+    # Existing resource was generated from raw S2I labels with 255 treated as
+    # the raw outside marker. Final training recomputes its own fold-to-0 cache.
+    assert payload.get("ignore_index") == cfg.outside_label
+    assert cfg.target_ignore_index is None
     assert tuple(payload["weights"].shape) == (cfg.num_classes,)
     assert torch.isfinite(payload["weights"]).all()
+
+
+def test_s2i_stage_b_dataset_folds_raw_outside_label_to_empty_class(tmp_path):
+    from data.dataset import HyperBodyDataset
+
+    data_root = tmp_path / "S2I_Dataset"
+    train_dir = data_root / "train"
+    train_dir.mkdir(parents=True)
+    sample_name = "train/sample.npz"
+    np.savez(
+        data_root / sample_name,
+        sensor_pc=np.array([[0.1, 0.1, 0.1]], dtype=np.float32),
+        grid_world_min=np.array([0.0, 0.0, 0.0], dtype=np.float32),
+        grid_voxel_size=np.array([1.0, 1.0, 1.0], dtype=np.float32),
+        voxel_labels=np.array([[[255, 7]]], dtype=np.uint8),
+    )
+    split_file = data_root / "dataset_split.json"
+    split_file.write_text(json.dumps({"train": [sample_name], "val": [], "test": []}))
+
+    ds = HyperBodyDataset(
+        str(data_root),
+        str(split_file),
+        "train",
+        (2, 1, 2),
+        label_pad_value=0,
+        outside_label=255,
+    )
+    _, labels = ds[0]
+
+    assert labels[0, 0, 0].item() == 0
+    assert labels[0, 0, 1].item() == 7
+    assert labels[1, 0, 0].item() == 0
+    assert 255 not in labels.unique().tolist()

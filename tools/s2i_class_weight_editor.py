@@ -99,7 +99,11 @@ def view_weights(weight_path: str, show_all: bool, group_filter: Optional[str]):
     print(f"Dataset:      {data.get('dataset', 'unknown')}")
     print(f"Method:       {data.get('method', 'unknown')}")
     print(f"Num samples:  {data.get('num_samples', 'unknown')}")
-    print(f"Num classes:  {len(weights)}    ignore_index: {data.get('ignore_index', '-')}")
+    print(
+        f"Num classes:  {len(weights)}    "
+        f"target_ignore_index: {data.get('target_ignore_index', data.get('ignore_index', '-'))}    "
+        f"outside_label: {data.get('outside_label', '-')}"
+    )
     print(f"{'=' * 90}\n")
 
     min_w = float(weights.min().item())
@@ -143,8 +147,10 @@ def _save(src: dict, weights: torch.Tensor, output_path: str, suffix: str):
         "num_samples": src.get("num_samples", 0),
         "method": f"{src.get('method', 'unknown')} + {suffix}",
         "dataset": src.get("dataset", "S2I_Dataset"),
-        "ignore_index": src.get("ignore_index", 255),
     }
+    for key in ("target_ignore_index", "outside_label", "label_pad_value", "volume_size", "ignore_index"):
+        if key in src:
+            out[key] = src[key]
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     torch.save(out, output_path)
     print(f"\nSaved to: {output_path}")

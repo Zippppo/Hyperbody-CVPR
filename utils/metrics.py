@@ -9,16 +9,19 @@ class DiceMetric:
         self,
         num_classes: int = 70,
         smooth: float = 1e-5,
+        ignore_index: Optional[int] = None,
         target_ignore_index: Optional[int] = None,
     ):
         """
         Args:
             num_classes: Number of segmentation classes
             smooth: Smoothing factor to avoid division by zero
+            ignore_index: Class index excluded from mean metrics
             target_ignore_index: Voxel label value excluded from all counts
         """
         self.num_classes = num_classes
         self.smooth = smooth
+        self.ignore_index = ignore_index
         self.target_ignore_index = target_ignore_index
         # Accumulators initialized lazily to inherit device from input
         self._intersection = None
@@ -134,6 +137,8 @@ class DiceMetric:
 
         # Mask for classes present in targets (avoid inflating mean with absent classes)
         valid_mask = target_sum > 0
+        if self.ignore_index is not None and 0 <= self.ignore_index < self.num_classes:
+            valid_mask[self.ignore_index] = False
 
         # Mean Dice only over present classes
         if valid_mask.sum() > 0:
@@ -161,6 +166,9 @@ class DiceMetric:
         iou_per_class = (intersection + self.smooth) / (union + self.smooth)
 
         valid_mask = target_sum > 0
+        if self.ignore_index is not None and 0 <= self.ignore_index < self.num_classes:
+            valid_mask[self.ignore_index] = False
+
         if valid_mask.sum() > 0:
             mean_iou = iou_per_class[valid_mask].mean().item()
         else:

@@ -140,7 +140,15 @@ def main():
     model = load_model(cfg, ckpt_path, device)
 
     # Load test dataset
-    test_dataset = HyperBodyDataset(cfg.data_dir, cfg.split_file, "test", cfg.volume_size)
+    label_pad_value = cfg.label_pad_value if cfg.label_pad_value is not None else 0
+    test_dataset = HyperBodyDataset(
+        cfg.data_dir,
+        cfg.split_file,
+        "test",
+        cfg.volume_size,
+        label_pad_value=label_pad_value,
+        outside_label=cfg.outside_label,
+    )
     print(f"Test samples: {len(test_dataset)}")
 
     # Run inference with AMP

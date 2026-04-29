@@ -47,6 +47,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--split-file", type=str, default="Dataset/dataset_split.json")
     parser.add_argument("--dataset-info", type=str, default="Dataset/dataset_info.json")
     parser.add_argument("--volume-size", type=int, nargs=3, default=[144, 128, 268])
+    parser.add_argument("--label-pad-value", type=int, default=0)
+    parser.add_argument("--outside-label", type=int, default=None)
     parser.add_argument("--num-workers", type=int, default=0)
     return parser.parse_args()
 
@@ -67,6 +69,8 @@ def main() -> None:
         split_file=args.split_file,
         split="train",
         volume_size=tuple(args.volume_size),
+        label_pad_value=args.label_pad_value,
+        outside_label=args.outside_label,
     )
     print(f"Training samples: {len(dataset)}")
 

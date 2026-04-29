@@ -1,8 +1,9 @@
 """
 S2I_Dataset Class Weight Calculator
 
-Computes class weights for the S2I_Dataset (121 classes, ignore_index=255).
-Reads voxel_labels directly from .npz files in S2I_Dataset/train/.
+Computes class weights for the S2I_Dataset (121 classes).
+Raw outside-body label 255 is folded into class 0, matching final training
+semantics where there is one empty/background class.
 
 Methods:
     - effective_number: "Class-Balanced Loss Based on Effective Number of Samples" (CVPR 2019)
@@ -27,16 +28,24 @@ Usage:
 import argparse
 import json
 import random
+import sys
 from pathlib import Path
 from typing import Dict
 
 import numpy as np
 import torch
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
+
+from data.dataset import fold_outside_label
+
 DATASET_ROOT = Path("S2I_Dataset")
 DATASET_INFO_PATH = DATASET_ROOT / "dataset_info.json"
 TRAIN_DIR = DATASET_ROOT / "train"
-IGNORE_INDEX = 255
+OUTSIDE_LABEL = 255
+LABEL_PAD_VALUE = 0
+VOLUME_SIZE = (144, 128, 268)
 
 # Class index ranges in S2I_Dataset (121 classes total)
 RIB_INDICES = list(range(52, 76))           # rib_left_1 .. rib_right_12
@@ -105,12 +114,18 @@ def compute_weights_log_dampened(class_counts: torch.Tensor, dampening_factor: f
     return {"weights": weights, "num_classes": num_classes, "method": f"log_dampened_factor{dampening_factor}"}
 
 
-def count_classes_from_dataset(num_classes: int, num_samples: int) -> torch.Tensor:
+def count_classes_from_dataset(
+    num_classes: int,
+    num_samples: int,
+    volume_size=VOLUME_SIZE,
+    label_pad_value: int = LABEL_PAD_VALUE,
+    outside_label: int = OUTSIDE_LABEL,
+) -> torch.Tensor:
     """
     Count voxel-level class frequencies by reading .npz files from S2I_Dataset/train/.
 
-    The ignore_index (255) is implicitly dropped: bincount returns a tensor of
-    length max(num_classes, max_label+1), and slicing [:num_classes] discards it.
+    The raw outside-body marker is folded into ``label_pad_value`` before counting,
+    and padding up to ``volume_size`` is counted as ``label_pad_value`` as well.
     """
     npz_files = sorted(TRAIN_DIR.glob("*.npz"))
     if not npz_files:
@@ -128,14 +143,25 @@ def count_classes_from_dataset(num_classes: int, num_samples: int) -> torch.Tens
             print(f"  Processing sample {i + 1}/{total}")
 
         with np.load(fp) as data:
-            labels = data["voxel_labels"]
+            labels = fold_outside_label(
+                data["voxel_labels"],
+                outside_label,
+                label_pad_value,
+            )
 
-        labels_t = torch.from_numpy(labels.astype(np.int64)).flatten()
-        # bincount over the full label range; [:num_classes] drops ignore_index=255
+        x, y, z = labels.shape
+        cx = min(x, volume_size[0])
+        cy = min(y, volume_size[1])
+        cz = min(z, volume_size[2])
+        labels_t = torch.from_numpy(labels[:cx, :cy, :cz].astype(np.int64)).flatten()
         max_label = int(labels_t.max().item()) if labels_t.numel() > 0 else 0
         minlength = max(num_classes, max_label + 1)
         counts = torch.bincount(labels_t, minlength=minlength).double()
         class_counts += counts[:num_classes]
+
+        padded_voxels = int(np.prod(volume_size)) - cx * cy * cz
+        if 0 <= label_pad_value < num_classes:
+            class_counts[label_pad_value] += padded_voxels
 
     return class_counts
 
@@ -147,7 +173,10 @@ def save_weights(result: Dict, output_path: str, num_samples: int):
         "num_samples": num_samples,
         "method": result["method"],
         "dataset": "S2I_Dataset",
-        "ignore_index": IGNORE_INDEX,
+        "target_ignore_index": None,
+        "outside_label": OUTSIDE_LABEL,
+        "label_pad_value": LABEL_PAD_VALUE,
+        "volume_size": VOLUME_SIZE,
     }
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     torch.save(output_data, output_path)
@@ -166,6 +195,12 @@ def view_weights(weight_path: str, show_all: bool = False):
     print(f"Method: {data.get('method', 'unknown')}")
     print(f"Num samples: {data.get('num_samples', 'unknown')}")
     print(f"Num classes: {len(weights)}")
+    print(
+        "Label semantics: "
+        f"target_ignore_index={data.get('target_ignore_index', data.get('ignore_index', '-'))}, "
+        f"outside_label={data.get('outside_label', '-')}, "
+        f"label_pad_value={data.get('label_pad_value', '-')}"
+    )
     print(f"{'=' * 70}\n")
 
     print(f"Statistics:")

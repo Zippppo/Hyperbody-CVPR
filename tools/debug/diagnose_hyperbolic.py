@@ -345,7 +345,15 @@ def main():
 
     # Load a sample
     print(f"\nLoading sample {args.sample_idx} from validation set...")
-    val_dataset = HyperBodyDataset(cfg.data_dir, cfg.split_file, "val", cfg.volume_size)
+    label_pad_value = cfg.label_pad_value if cfg.label_pad_value is not None else 0
+    val_dataset = HyperBodyDataset(
+        cfg.data_dir,
+        cfg.split_file,
+        "val",
+        cfg.volume_size,
+        label_pad_value=label_pad_value,
+        outside_label=cfg.outside_label,
+    )
     sample_input, sample_labels = val_dataset[args.sample_idx]
     sample_input = sample_input.unsqueeze(0).to(device)  # [1, 1, D, H, W]
     sample_labels = sample_labels.unsqueeze(0).to(device)  # [1, D, H, W]

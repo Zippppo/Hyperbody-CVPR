@@ -317,6 +317,7 @@ def main():
         "train",
         cfg.volume_size,
         label_pad_value=label_pad_value,
+        outside_label=cfg.outside_label,
     )
     val_dataset = HyperBodyDataset(
         cfg.data_dir,
@@ -324,6 +325,7 @@ def main():
         "val",
         cfg.volume_size,
         label_pad_value=label_pad_value,
+        outside_label=cfg.outside_label,
     )
     logger.info(f"Train samples: {len(train_dataset)}, Val samples: {len(val_dataset)}")
 
@@ -364,6 +366,7 @@ def main():
         f"info_mtime={os.path.getmtime(cfg.dataset_info_file):.0f}",
         f"volume={tuple(cfg.volume_size)}",
         f"label_pad={label_pad_value}",
+        f"outside_label={cfg.outside_label}",
     ])
     class_weights = compute_class_weights(
         train_dataset,
@@ -544,6 +547,7 @@ def main():
     # Metrics
     metric = DiceMetric(
         num_classes=cfg.num_classes,
+        ignore_index=cfg.dice_ignore_index,
         target_ignore_index=cfg.target_ignore_index,
     )
 

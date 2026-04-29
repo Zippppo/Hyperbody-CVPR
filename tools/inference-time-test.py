@@ -164,12 +164,30 @@ def main():
 
     model = load_model(cfg, ckpt_path, device)
 
+    label_pad_value = cfg.label_pad_value if cfg.label_pad_value is not None else 0
     if args.split == "all":
-        splits = [HyperBodyDataset(cfg.data_dir, cfg.split_file, s, cfg.volume_size) for s in ("train", "val", "test")]
+        splits = [
+            HyperBodyDataset(
+                cfg.data_dir,
+                cfg.split_file,
+                s,
+                cfg.volume_size,
+                label_pad_value=label_pad_value,
+                outside_label=cfg.outside_label,
+            )
+            for s in ("train", "val", "test")
+        ]
         dataset = ConcatDataset(splits)
         print(f"Split 'all': {len(dataset)} samples ({', '.join(f'{s}={len(d)}' for s, d in zip(('train','val','test'), splits))})")
     else:
-        dataset = HyperBodyDataset(cfg.data_dir, cfg.split_file, args.split, cfg.volume_size)
+        dataset = HyperBodyDataset(
+            cfg.data_dir,
+            cfg.split_file,
+            args.split,
+            cfg.volume_size,
+            label_pad_value=label_pad_value,
+            outside_label=cfg.outside_label,
+        )
         print(f"Split '{args.split}': {len(dataset)} samples")
 
     timings = run_benchmark(model, dataset, device, use_amp, args.warmup, args.repeat, args.num_samples)

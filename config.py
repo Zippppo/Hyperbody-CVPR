@@ -68,6 +68,12 @@ class Config:
     dice_ignore_index: Optional[int] = None
     target_ignore_index: Optional[int] = None
     label_pad_value: Optional[int] = None
+    # If set, raw voxel labels equal to this value are remapped to
+    # ``label_pad_value`` at load time. Use this to fold a dataset-level
+    # "outside body" marker (e.g. 255) into class 0 (inside_body_empty),
+    # matching the PaSCo-style behaviour where outside_empty has no
+    # independent class or loss.
+    outside_label: Optional[int] = None
     hyp_weight: float = 0.05      # Loss weight
 
     # LR scheduler

@@ -18,15 +18,24 @@ import numpy as np
 import torch
 from tqdm import tqdm
 
+from data.dataset import fold_outside_label
 from utils.metrics import DiceMetric
 from utils.surface_distance import SurfaceDistanceMetric
+
+
+DEFAULT_GT_DIR = "Dataset/voxel_data"
+DEFAULT_NUM_CLASSES = 70
 
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Evaluate all model predictions")
     parser.add_argument("--pred_dir", type=str, default="eval/pred", help="Predictions root directory")
-    parser.add_argument("--gt_dir", type=str, default="Dataset/voxel_data", help="Ground truth data directory")
-    parser.add_argument("--num_classes", type=int, default=70, help="Number of classes")
+    parser.add_argument("--gt_dir", type=str, default=DEFAULT_GT_DIR, help="Ground truth data directory")
+    parser.add_argument("--num_classes", type=int, default=DEFAULT_NUM_CLASSES, help="Number of classes")
+    parser.add_argument("--config", type=str, default=None, help="Optional config used to load label semantics")
+    parser.add_argument("--label-pad-value", type=int, default=None, help="GT padding label value")
+    parser.add_argument("--outside-label", type=int, default=None, help="Raw GT label value folded into label-pad-value")
+    parser.add_argument("--dice-ignore-index", type=int, default=None, help="Class index excluded from mean Dice/IoU")
     parser.add_argument("--model", type=str, default=None, help="Evaluate only this model (subdirectory name)")
     parser.add_argument("--output", type=str, default="eval/results/metrics.json", help="Output JSON path")
     return parser.parse_args()
@@ -36,13 +45,20 @@ def parse_args():
 RIB_CLASS_INDICES = list(range(23, 47))  # 24 ribs total
 
 
-def evaluate_model(pred_dir, gt_dir, num_classes):
+def evaluate_model(
+    pred_dir,
+    gt_dir,
+    num_classes,
+    label_pad_value=0,
+    outside_label=None,
+    dice_ignore_index=None,
+):
     """Evaluate a single model's predictions against GT.
 
     Returns:
         dict with global and per-class metrics
     """
-    dice_metric = DiceMetric(num_classes=num_classes)
+    dice_metric = DiceMetric(num_classes=num_classes, ignore_index=dice_ignore_index)
     surface_metric = SurfaceDistanceMetric(num_classes=num_classes, nsd_tolerance=2.0)
 
     pred_files = sorted([f for f in os.listdir(pred_dir) if f.endswith(".npz")])
@@ -72,13 +88,17 @@ def evaluate_model(pred_dir, gt_dir, num_classes):
             continue
 
         gt_data = np.load(gt_path)
-        gt_labels = gt_data["voxel_labels"]
+        gt_labels = fold_outside_label(
+            gt_data["voxel_labels"],
+            outside_label,
+            label_pad_value,
+        )
 
         # Pad GT if needed (same as dataset does)
         volume_size = pred_labels.shape
         if gt_labels.shape != volume_size:
             from data.voxelizer import pad_labels
-            gt_labels = pad_labels(gt_labels, volume_size)
+            gt_labels = pad_labels(gt_labels, volume_size, fill_value=label_pad_value)
 
         # Convert to tensors and update metric
         pred_tensor = torch.from_numpy(pred_labels).long().unsqueeze(0)  # (1, X, Y, Z)
@@ -127,6 +147,24 @@ def evaluate_model(pred_dir, gt_dir, num_classes):
 def main():
     args = parse_args()
 
+    if args.config:
+        from config import Config
+
+        cfg = Config.from_yaml(args.config)
+        if args.gt_dir == DEFAULT_GT_DIR:
+            args.gt_dir = cfg.data_dir
+        if args.num_classes == DEFAULT_NUM_CLASSES:
+            args.num_classes = cfg.num_classes
+        if args.label_pad_value is None:
+            args.label_pad_value = cfg.label_pad_value if cfg.label_pad_value is not None else 0
+        if args.outside_label is None:
+            args.outside_label = cfg.outside_label
+        if args.dice_ignore_index is None:
+            args.dice_ignore_index = cfg.dice_ignore_index
+
+    if args.label_pad_value is None:
+        args.label_pad_value = 0
+
     # Find all model directories
     if not os.path.exists(args.pred_dir):
         print(f"Prediction directory not found: {args.pred_dir}")
@@ -150,6 +188,10 @@ def main():
 
     print(f"Found {len(model_dirs)} model(s): {model_dirs}")
     print(f"GT directory: {args.gt_dir}")
+    print(
+        f"Label semantics: label_pad_value={args.label_pad_value}, "
+        f"outside_label={args.outside_label}, dice_ignore_index={args.dice_ignore_index}"
+    )
     print("-" * 50)
 
     all_results = {}
@@ -158,7 +200,14 @@ def main():
         print(f"\nEvaluating: {model_name}")
         pred_path = os.path.join(args.pred_dir, model_name)
 
-        result = evaluate_model(pred_path, args.gt_dir, args.num_classes)
+        result = evaluate_model(
+            pred_path,
+            args.gt_dir,
+            args.num_classes,
+            label_pad_value=args.label_pad_value,
+            outside_label=args.outside_label,
+            dice_ignore_index=args.dice_ignore_index,
+        )
 
         if result is not None:
             all_results[model_name] = result

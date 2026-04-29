@@ -255,6 +255,27 @@ def test_dice_metric_filters_target_ignore_index_from_all_counts():
     assert mean_dice == 1.0
 
 
+def test_dice_metric_excludes_configured_class_from_mean():
+    from utils.metrics import DiceMetric
+
+    metric = DiceMetric(num_classes=3, smooth=0.0, ignore_index=0)
+    targets = torch.tensor([[[[0, 1]]]], dtype=torch.long)
+    logits = torch.full((1, 3, 1, 1, 2), -10.0)
+    logits[:, 2, 0, 0, 0] = 10.0
+    logits[:, 1, 0, 0, 1] = 10.0
+
+    dice_per_class, mean_dice, valid_mask = metric.compute()
+    assert valid_mask.tolist() == [False, False, False]
+
+    metric.update(logits, targets)
+    dice_per_class, mean_dice, valid_mask = metric.compute()
+
+    assert valid_mask.tolist() == [False, True, False]
+    assert dice_per_class[0].item() == 0.0
+    assert dice_per_class[1].item() == 1.0
+    assert mean_dice == 1.0
+
+
 @pytest.mark.parametrize("loss_name", ["LorentzRankingLoss", "LorentzTreeRankingLoss"])
 def test_lorentz_losses_filter_out_of_range_labels(loss_name):
     from models.hyperbolic.lorentz_loss import LorentzRankingLoss, LorentzTreeRankingLoss
