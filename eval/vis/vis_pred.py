@@ -329,14 +329,22 @@ def visualize_with_system_selector(labels_3d, grid_world_min, voxel_size,
     return traces, system_voxel_counts
 
 
-def create_dropdown_buttons(num_systems, offset=0):
-    """Create dropdown buttons for organ system selection."""
+def create_dropdown_buttons(num_systems, offset=0, always_on=None):
+    """Create dropdown buttons for organ system selection.
+
+    `always_on` is a list of trace indices (e.g. the body-surface overlay) that
+    should remain visible under every selection.
+    """
+    always_on = set(always_on or [])
     buttons = []
     system_names = list(ORGAN_SYSTEMS.keys())
 
     for i, system_name in enumerate(system_names):
         # Create visibility array: only show traces for this system
         visibility = [False] * (num_systems + offset)
+        for j in always_on:
+            if 0 <= j < len(visibility):
+                visibility[j] = True
         visibility[i + offset] = True
         buttons.append(dict(
             label=system_name,
@@ -347,25 +355,40 @@ def create_dropdown_buttons(num_systems, offset=0):
     return buttons
 
 
-def visualize_prediction(pred_path, output_path, class_names, max_points):
-    """Visualize a single prediction file with organ system selector."""
+def visualize_prediction(pred_path, output_path, class_names, max_points, gt_path=None):
+    """Visualize a single prediction file with organ system selector.
+
+    If gt_path is provided and contains sensor_pc, the body surface is overlaid
+    in every dropdown view so per-system selections stay anchored to the body.
+    """
     pred_data = np.load(pred_path)
     pred_labels = pred_data["pred_labels"]
     grid_world_min = pred_data["grid_world_min"]
     voxel_size = pred_data["grid_voxel_size"]
 
-    # Create traces for all systems
-    traces, voxel_counts = visualize_with_system_selector(
+    sensor_pc = None
+    if gt_path is not None and os.path.exists(gt_path):
+        gt_data = np.load(gt_path)
+        if "sensor_pc" in gt_data.files:
+            sensor_pc = gt_data["sensor_pc"]
+    surface_max_points = min(max_points, 30000)
+
+    # Create traces for each system
+    system_traces, _ = visualize_with_system_selector(
         pred_labels, grid_world_min, voxel_size, class_names, max_points, "Prediction"
     )
 
+    # Surface trace lives at index 0 and stays visible under every dropdown selection.
+    surface_trace = create_surface_trace(sensor_pc, surface_max_points, "Body surface")
+    traces = [surface_trace] + system_traces
+
     fig = go.Figure(data=traces)
 
-    # Add dropdown menu
+    # Add dropdown menu — offset by 1 so the surface trace at index 0 is preserved.
     fig.update_layout(
         updatemenus=[dict(
             active=0,
-            buttons=create_dropdown_buttons(len(traces)),
+            buttons=create_dropdown_buttons(len(system_traces), offset=1, always_on=[0]),
             direction="down",
             showactive=True,
             x=0.02,
@@ -404,6 +427,27 @@ def _empty_trace(name, visible):
     )
 
 
+def create_surface_trace(sensor_pc, max_points, name, visible=True):
+    """Body surface point cloud overlay — kept visible under every dropdown selection
+    so per-system views still show the relative position against the body envelope.
+    """
+    if sensor_pc is None or len(sensor_pc) == 0:
+        return _empty_trace(name, visible)
+    pts = np.asarray(sensor_pc)
+    if len(pts) > max_points:
+        step = max(1, len(pts) // max_points)
+        pts = pts[::step]
+    return go.Scatter3d(
+        x=pts[:, 0], y=pts[:, 1], z=pts[:, 2],
+        mode="markers",
+        marker=dict(size=1, color="lightgray", opacity=0.18),
+        name=name,
+        visible=visible,
+        showlegend=False,
+        hoverinfo="skip",
+    )
+
+
 def visualize_comparison(pred_path, gt_path, output_path, class_names, max_points):
     """Visualize prediction vs ground truth in two independent 3D scenes (side-by-side).
 
@@ -418,6 +462,8 @@ def visualize_comparison(pred_path, gt_path, output_path, class_names, max_point
     gt_labels = gt_data["voxel_labels"]
     grid_world_min = pred_data["grid_world_min"]
     voxel_size = pred_data["grid_voxel_size"]
+    sensor_pc = gt_data["sensor_pc"] if "sensor_pc" in gt_data.files else None
+    surface_max_points = min(max_points, 30000)
 
     fig = make_subplots(
         rows=1, cols=2,
@@ -426,10 +472,17 @@ def visualize_comparison(pred_path, gt_path, output_path, class_names, max_point
         horizontal_spacing=0.02,
     )
 
+    # Body surface traces sit at indices 0 (GT scene) and 1 (Pred scene).
+    # They remain visible under every dropdown selection so subsystem views
+    # stay anchored to the body envelope.
+    fig.add_trace(create_surface_trace(sensor_pc, surface_max_points, "Body surface (GT)"), row=1, col=1)
+    fig.add_trace(create_surface_trace(sensor_pc, surface_max_points, "Body surface (Pred)"), row=1, col=2)
+
     system_names = list(ORGAN_SYSTEMS.keys())
 
-    # Trace order in fig.data is interleaved: [GT_0, Pred_0, GT_1, Pred_1, ...]
-    # so the button at index i flips visibility[2*i] and visibility[2*i + 1].
+    # System traces follow the two surface traces and are interleaved:
+    # [SurfaceGT, SurfacePred, GT_0, Pred_0, GT_1, Pred_1, ...].
+    # The button at system index i flips visibility[2 + 2*i] and visibility[2 + 2*i + 1].
     for system_name, system_organs in ORGAN_SYSTEMS.items():
         system_indices = get_system_class_indices(class_names, system_organs)
         default_visible = (system_name == "All")
@@ -451,13 +504,14 @@ def visualize_comparison(pred_path, gt_path, output_path, class_names, max_point
         fig.add_trace(gt_trace, row=1, col=1)
         fig.add_trace(pred_trace, row=1, col=2)
 
-    # Visibility buttons: each button shows one system's GT (scene 1) + Pred (scene 2).
+    # Visibility buttons: each button shows one system's GT (scene 1) + Pred (scene 2),
+    # plus the two body-surface traces (indices 0 and 1) which stay always-on.
     num_systems = len(system_names)
     buttons = []
     for i, system_name in enumerate(system_names):
-        visibility = [False] * (num_systems * 2)
-        visibility[i * 2] = True      # GT trace in scene
-        visibility[i * 2 + 1] = True  # Pred trace in scene2
+        visibility = [True, True] + [False] * (num_systems * 2)
+        visibility[2 + i * 2] = True      # GT trace in scene
+        visibility[2 + i * 2 + 1] = True  # Pred trace in scene2
         buttons.append(dict(
             label=system_name,
             method="update",
@@ -533,7 +587,9 @@ def main():
             visualize_comparison(pred_path, gt_path, output_path, class_names, args.max_points)
         else:
             output_path = os.path.join(args.output_dir, f"{sample_name}_pred.html")
-            visualize_prediction(pred_path, output_path, class_names, args.max_points)
+            gt_path = os.path.join(args.gt_dir, filename)
+            visualize_prediction(pred_path, output_path, class_names, args.max_points,
+                                 gt_path=gt_path if os.path.exists(gt_path) else None)
 
     print(f"\nDone! Visualizations saved to {args.output_dir}")
 
