@@ -40,10 +40,10 @@ class Config:
     hyp_freeze_epochs: int = 5  # Freeze label embeddings for first N epochs (0 = no freeze)
     hyp_text_lr_ratio: float = 0.01  # Text embedding LR = base_lr * ratio
     hyp_text_grad_clip: float = 0.1  # Gradient clip for text embeddings (first unfreeze epoch)
-    hyp_distance_mode: str = "graph"  # Distance mode for negative sampling: "hyperbolic", "tree", or "graph"
 
-    # Graph distance (for hyp_distance_mode="graph")
-    graph_distance_matrix: str = "Dataset/graph_distance_matrix.pt"  # Path to precomputed graph_distance_matrix.pt
+    # Graph distance: precomputed pairwise inter-class distance matrix used for
+    # negative sampling weights in LorentzMatrixRankingLoss.
+    graph_distance_matrix: str = "Dataset/graph_distance_matrix.pt"
 
     # Training
     batch_size: int = 2  # per GPU

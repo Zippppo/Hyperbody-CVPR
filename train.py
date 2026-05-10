@@ -22,11 +22,11 @@ from tqdm import tqdm
 
 from config import Config
 from data.dataset import HyperBodyDataset
-from data.organ_hierarchy import load_organ_hierarchy, load_class_to_system, compute_tree_distance_matrix
+from data.organ_hierarchy import load_organ_hierarchy, load_class_to_system
 from models.hyperbolic.embedding_tracker import EmbeddingTracker
 from models.body_net import BodyNet
 from models.losses import CombinedLoss, compute_class_weights
-from models.hyperbolic.lorentz_loss import LorentzRankingLoss, LorentzTreeRankingLoss
+from models.hyperbolic.lorentz_loss import LorentzMatrixRankingLoss
 from utils.metrics import DiceMetric
 from utils.checkpoint import save_checkpoint, load_checkpoint
 
@@ -144,7 +144,7 @@ def train_one_epoch(model, loader, seg_criterion, hyp_criterion, hyp_weight, opt
         model: The model to train (BodyNet)
         loader: DataLoader for training data
         seg_criterion: Segmentation loss function (CombinedLoss)
-        hyp_criterion: Hyperbolic loss function (LorentzRankingLoss)
+        hyp_criterion: Hyperbolic loss function (LorentzMatrixRankingLoss)
         hyp_weight: Weight for hyperbolic loss
         optimizer: Optimizer
         device: Device to use
@@ -393,60 +393,30 @@ def main():
     if cfg.dice_ignore_index is not None:
         logger.info(f"Dice loss ignoring class {cfg.dice_ignore_index}")
 
-    # Hyperbolic ranking loss (with Curriculum Negative Mining)
-    # Choose loss class based on hyp_distance_mode config
-    if cfg.hyp_distance_mode == "tree":
-        # Tree-based negative sampling: uses precomputed tree distances
-        tree_dist_matrix = compute_tree_distance_matrix(cfg.tree_file, class_names)
-        hyp_criterion = LorentzTreeRankingLoss(
-            tree_dist_matrix=tree_dist_matrix,
-            margin=cfg.hyp_margin,
-            curv=cfg.hyp_curv,
-            num_samples_per_class=cfg.hyp_samples_per_class,
-            num_negatives=cfg.hyp_num_negatives,
-            t_start=cfg.hyp_t_start,
-            t_end=cfg.hyp_t_end,
-            warmup_epochs=cfg.hyp_warmup_epochs,
-            curriculum_epochs=cfg.hyp_curriculum_epochs,
+    # Hyperbolic ranking loss with Curriculum Negative Mining,
+    # negative sampling weighted by precomputed graph distance matrix.
+    graph_dist_matrix = load_precomputed_graph_distance_matrix(
+        cfg.graph_distance_matrix,
+        logger,
+    )
+    expected_shape = (cfg.num_classes, cfg.num_classes)
+    if tuple(graph_dist_matrix.shape) != expected_shape:
+        raise ValueError(
+            f"graph_distance_matrix shape {tuple(graph_dist_matrix.shape)} != {expected_shape}"
         )
-        logger.info("Using LorentzTreeRankingLoss (tree distance mode)")
-    elif cfg.hyp_distance_mode == "graph":
-        # Graph-based negative sampling: load precomputed graph distance matrix.
-        graph_dist_matrix = load_precomputed_graph_distance_matrix(
-            cfg.graph_distance_matrix,
-            logger,
-        )
-        expected_shape = (cfg.num_classes, cfg.num_classes)
-        if tuple(graph_dist_matrix.shape) != expected_shape:
-            raise ValueError(
-                f"graph_distance_matrix shape {tuple(graph_dist_matrix.shape)} != {expected_shape}"
-            )
 
-        hyp_criterion = LorentzTreeRankingLoss(
-            tree_dist_matrix=graph_dist_matrix,
-            margin=cfg.hyp_margin,
-            curv=cfg.hyp_curv,
-            num_samples_per_class=cfg.hyp_samples_per_class,
-            num_negatives=cfg.hyp_num_negatives,
-            t_start=cfg.hyp_t_start,
-            t_end=cfg.hyp_t_end,
-            warmup_epochs=cfg.hyp_warmup_epochs,
-            curriculum_epochs=cfg.hyp_curriculum_epochs,
-        )
-        logger.info("Using LorentzTreeRankingLoss (graph distance mode)")
-    else:
-        # Default: Hyperbolic distance-based negative sampling
-        hyp_criterion = LorentzRankingLoss(
-            margin=cfg.hyp_margin,
-            curv=cfg.hyp_curv,
-            num_samples_per_class=cfg.hyp_samples_per_class,
-            num_negatives=cfg.hyp_num_negatives,
-            t_start=cfg.hyp_t_start,
-            t_end=cfg.hyp_t_end,
-            warmup_epochs=cfg.hyp_warmup_epochs,
-            curriculum_epochs=cfg.hyp_curriculum_epochs,
-        )
-        logger.info(f"Using LorentzRankingLoss (hyperbolic distance mode)")
+    hyp_criterion = LorentzMatrixRankingLoss(
+        dist_matrix=graph_dist_matrix,
+        margin=cfg.hyp_margin,
+        curv=cfg.hyp_curv,
+        num_samples_per_class=cfg.hyp_samples_per_class,
+        num_negatives=cfg.hyp_num_negatives,
+        t_start=cfg.hyp_t_start,
+        t_end=cfg.hyp_t_end,
+        warmup_epochs=cfg.hyp_warmup_epochs,
+        curriculum_epochs=cfg.hyp_curriculum_epochs,
+    )
+    logger.info("Using LorentzMatrixRankingLoss with graph distance matrix")
 
     # Move hyp_criterion to device (required for registered buffers like tree_dist_matrix)
     hyp_criterion = hyp_criterion.to(device)

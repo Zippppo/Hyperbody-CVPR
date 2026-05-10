@@ -12,7 +12,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from models.body_net import BodyNet
-from models.hyperbolic.lorentz_loss import LorentzRankingLoss
+from models.hyperbolic.lorentz_loss import LorentzMatrixRankingLoss
 from models.hyperbolic.lorentz_ops import distance_to_origin, exp_map0
 from data.organ_hierarchy import load_organ_hierarchy, load_class_to_system
 from config import Config
@@ -67,8 +67,10 @@ def analyze_loss_gradient_direction(config_path: str):
     # Get label embeddings (on manifold)
     label_emb = model.label_emb()
 
-    # Create loss
-    hyp_criterion = LorentzRankingLoss(
+    # Create loss; LorentzMatrixRankingLoss requires a precomputed distance matrix
+    dist_matrix = torch.load(cfg.graph_distance_matrix, map_location="cpu").float()
+    hyp_criterion = LorentzMatrixRankingLoss(
+        dist_matrix=dist_matrix,
         margin=cfg.hyp_margin,
         curv=cfg.hyp_curv,
         num_samples_per_class=cfg.hyp_samples_per_class,

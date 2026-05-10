@@ -24,7 +24,7 @@ from data.dataset import HyperBodyDataset
 from data.organ_hierarchy import load_organ_hierarchy, load_class_to_system
 from models.body_net import BodyNet
 from models.hyperbolic.lorentz_ops import pointwise_dist, pairwise_dist, distance_to_origin
-from models.hyperbolic.lorentz_loss import LorentzRankingLoss
+from models.hyperbolic.lorentz_loss import LorentzMatrixRankingLoss
 
 
 def load_model(checkpoint_path: str, config_path: str, device: torch.device):
@@ -195,7 +195,9 @@ def analyze_triplet_loss(model, sample_input, sample_labels, cfg):
     sample_input = sample_input[:, :, :crop_size, :crop_size, :crop_size]
     sample_labels = sample_labels[:, :crop_size, :crop_size, :crop_size]
 
-    hyp_criterion = LorentzRankingLoss(
+    dist_matrix = torch.load(cfg.graph_distance_matrix, map_location="cpu").float()
+    hyp_criterion = LorentzMatrixRankingLoss(
+        dist_matrix=dist_matrix,
         margin=cfg.hyp_margin,
         curv=cfg.hyp_curv,
         num_samples_per_class=cfg.hyp_samples_per_class,
@@ -239,7 +241,9 @@ def analyze_gradient_flow(model, sample_input, sample_labels, cfg, device):
     for param in model.parameters():
         param.requires_grad_(True)
 
-    hyp_criterion = LorentzRankingLoss(
+    dist_matrix = torch.load(cfg.graph_distance_matrix, map_location="cpu").float()
+    hyp_criterion = LorentzMatrixRankingLoss(
+        dist_matrix=dist_matrix,
         margin=cfg.hyp_margin,
         curv=cfg.hyp_curv,
         num_samples_per_class=cfg.hyp_samples_per_class,
