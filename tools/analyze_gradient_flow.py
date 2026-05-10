@@ -48,8 +48,6 @@ def analyze_loss_gradient_direction(config_path: str):
         class_depths=class_depths,
         min_radius=cfg.hyp_min_radius,
         max_radius=cfg.hyp_max_radius,
-        direction_mode=cfg.hyp_direction_mode,
-        text_embedding_path=cfg.hyp_text_embedding_path,
     )
 
     # Create dummy data

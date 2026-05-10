@@ -1,13 +1,8 @@
 """
-Prediction script for L_R_FZ+cls0_0.1 model (BodyNet with hyperbolic embedding + frozen text embeddings).
-
-This model uses:
-- hyp_freeze_epochs=10: Text embeddings frozen for first 10 epochs
-- hyp_direction_mode="random": Random direction initialization
+Inference entry point for BodyNet (UNet3D + Lorentz hyperbolic head).
 
 Usage:
-
-python inference.py --config configs/021201-19.yaml --ckpt hyperbody-best.pth --output Real_Data/output
+    python inference.py --config configs/021201-19.yaml --ckpt hyperbody-best.pth --output Real_Data/output
 """
 import argparse
 import json
@@ -29,10 +24,10 @@ from models.body_net import BodyNet
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Run inference on test set with BodyNet (L_R_FZ+cls0_0.1)")
-    parser.add_argument("--config", type=str, default="configs/L_R_FZ+cls0_0.1.yaml", help="Path to YAML config")
-    parser.add_argument("--ckpt", type=str, default="best.pth", help="Checkpoint filename")
-    parser.add_argument("--output", type=str, default="eval/pred/L_R_FZ+cls0_0.1", help="Output directory")
+    parser = argparse.ArgumentParser(description="Run inference on test set with BodyNet")
+    parser.add_argument("--config", type=str, required=True, help="Path to YAML config")
+    parser.add_argument("--ckpt", type=str, default="best.pth", help="Checkpoint path")
+    parser.add_argument("--output", type=str, required=True, help="Output directory")
     parser.add_argument("--gpuids", type=int, default=0, help="GPU device ID to use")
     return parser.parse_args()
 
@@ -57,8 +52,6 @@ def load_model(cfg, ckpt_path, device):
         class_depths=class_depths,
         min_radius=cfg.hyp_min_radius,
         max_radius=cfg.hyp_max_radius,
-        direction_mode=cfg.hyp_direction_mode,
-        text_embedding_path=cfg.hyp_text_embedding_path,
     )
 
     # Load checkpoint

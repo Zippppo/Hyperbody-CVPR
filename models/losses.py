@@ -3,67 +3,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-class DiceLoss(nn.Module):
-    """Multi-class Dice loss for 3D segmentation"""
-
-    def __init__(self, smooth: float = 1.0, ignore_index: int = None):
-        """
-        Args:
-            smooth: Smoothing factor to avoid division by zero
-            ignore_index: Class index to exclude from Dice averaging (None = use all)
-        """
-        super().__init__()
-        self.smooth = smooth
-        self.ignore_index = ignore_index
-
-    def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
-        """
-        Args:
-            logits: (B, C, D, H, W) raw model output
-            targets: (B, D, H, W) ground truth labels (int64)
-
-        Returns:
-            Scalar Dice loss (1 - mean_dice)
-        """
-        num_classes = logits.shape[1]
-
-        # Force float32 for numerical stability in AMP
-        logits = logits.float()
-
-        # Softmax to get probabilities
-        probs = F.softmax(logits, dim=1)  # (B, C, D, H, W)
-
-        # One-hot encode targets
-        targets_one_hot = F.one_hot(targets, num_classes)  # (B, D, H, W, C)
-        targets_one_hot = targets_one_hot.permute(0, 4, 1, 2, 3).float()  # (B, C, D, H, W)
-
-        # Flatten spatial dimensions
-        probs_flat = probs.view(probs.shape[0], num_classes, -1)  # (B, C, N)
-        targets_flat = targets_one_hot.view(targets_one_hot.shape[0], num_classes, -1)  # (B, C, N)
-
-        # Compute Dice per class
-        intersection = (probs_flat * targets_flat).sum(dim=2)  # (B, C)
-        union = probs_flat.sum(dim=2) + targets_flat.sum(dim=2)  # (B, C)
-
-        dice_per_class = (2.0 * intersection + self.smooth) / (union + self.smooth)  # (B, C)
-
-        # Average over classes and batch, optionally excluding ignore_index
-        if self.ignore_index is not None:
-            mask = torch.ones(num_classes, dtype=torch.bool, device=dice_per_class.device)
-            mask[self.ignore_index] = False
-            mean_dice = dice_per_class[:, mask].mean()
-        else:
-            mean_dice = dice_per_class.mean()
-
-        return 1.0 - mean_dice
-
-
 class MemoryEfficientDiceLoss(nn.Module):
     """Multi-class Dice loss for 3D segmentation (memory-efficient).
 
-    Note: Using gather/scatter_add for memory efficiency, replaces
-    O(B*C*D*H*W) one-hot tensor with O(B*D*H*W) gather operations.
-    Mathematically equivalent to DiceLoss (one-hot version).
+    Uses gather/scatter_add to avoid materializing a one-hot tensor:
+    O(B*D*H*W) instead of O(B*C*D*H*W).
     """
 
     def __init__(self, smooth: float = 1.0, ignore_index: int = None):

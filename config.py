@@ -37,18 +37,12 @@ class Config:
     hyp_curriculum_epochs: int = 50  # Epochs for full easy->hard curriculum (decoupled from total epochs)
     hyp_min_radius: float = 0.1   # Shallow organ init norm
     hyp_max_radius: float = 2.0   # Deep organ init norm
-    hyp_direction_mode: str = "random"  # "random" or "semantic"
-    hyp_text_embedding_path: str = "Dataset/text_embeddings/sat_label_embeddings.pt"
     hyp_freeze_epochs: int = 5  # Freeze label embeddings for first N epochs (0 = no freeze)
     hyp_text_lr_ratio: float = 0.01  # Text embedding LR = base_lr * ratio
     hyp_text_grad_clip: float = 0.1  # Gradient clip for text embeddings (first unfreeze epoch)
     hyp_distance_mode: str = "graph"  # Distance mode for negative sampling: "hyperbolic", "tree", or "graph"
 
-    # Spatial adjacency (for hyp_distance_mode="graph")
-    spatial_dilation_radius: int = 3  # Cube dilation radius in voxels
-    spatial_lambda: float = 1.0  # Scale factor for spatial edge distance
-    spatial_epsilon: float = 0.01  # Prevents division by zero in contact->distance
-    spatial_contact_matrix: str = ""  # Path to precomputed contact_matrix.pt (empty = compute)
+    # Graph distance (for hyp_distance_mode="graph")
     graph_distance_matrix: str = "Dataset/graph_distance_matrix.pt"  # Path to precomputed graph_distance_matrix.pt
 
     # Training
