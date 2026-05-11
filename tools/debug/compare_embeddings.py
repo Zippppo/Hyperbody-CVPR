@@ -1,9 +1,9 @@
-"""
-Compare initial vs trained label embeddings to see how they've changed.
-"""
+"""Compare initial vs trained label embeddings."""
+import argparse
 import json
-import sys
 import os
+import sys
+
 import torch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -12,9 +12,23 @@ from config import Config
 from data.organ_hierarchy import load_organ_hierarchy
 from models.hyperbolic.label_embedding import LorentzLabelEmbedding
 
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Compare initial and trained label embeddings")
+    parser.add_argument("--config", type=str, default="configs/021201-19.yaml", help="Path to config YAML")
+    parser.add_argument(
+        "--checkpoint",
+        type=str,
+        default="checkpoints/021201-19/latest.pth",
+        help="Path to checkpoint",
+    )
+    parser.add_argument("--seed", type=int, default=42, help="Initialization seed used for comparison")
+    return parser.parse_args()
+
+
 def main():
-    # Load config
-    cfg = Config.from_yaml("configs/lorentz_semantic.yaml")
+    args = parse_args()
+    cfg = Config.from_yaml(args.config)
 
     # Load class info
     with open(cfg.dataset_info_file) as f:
@@ -26,7 +40,7 @@ def main():
     print("="*60)
 
     # Create fresh label embedding (same initialization as training)
-    torch.manual_seed(42)  # Same seed as training
+    torch.manual_seed(args.seed)
     initial_emb = LorentzLabelEmbedding(
         num_classes=cfg.num_classes,
         embed_dim=cfg.hyp_embed_dim,
@@ -54,7 +68,7 @@ def main():
     print("="*60)
 
     # Load trained checkpoint
-    checkpoint = torch.load("checkpoints/lorentz_semantic/latest.pth", map_location="cpu", weights_only=False)
+    checkpoint = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
     trained_state = checkpoint['model_state_dict']
 
     # Extract label embedding tangent vectors

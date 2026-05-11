@@ -202,7 +202,7 @@ def analyze_triplet_loss(model, sample_input, sample_labels, cfg):
         curv=cfg.hyp_curv,
         num_samples_per_class=cfg.hyp_samples_per_class,
         num_negatives=cfg.hyp_num_negatives,
-    )
+    ).to(sample_input.device)
 
     with torch.no_grad():
         logits, voxel_emb, label_emb = model(sample_input)
@@ -248,7 +248,7 @@ def analyze_gradient_flow(model, sample_input, sample_labels, cfg, device):
         curv=cfg.hyp_curv,
         num_samples_per_class=cfg.hyp_samples_per_class,
         num_negatives=cfg.hyp_num_negatives,
-    )
+    ).to(device)
 
     # Forward pass
     logits, voxel_emb, label_emb = model(sample_input)

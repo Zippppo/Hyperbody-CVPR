@@ -62,16 +62,11 @@ class Config:
     dice_ignore_index: Optional[int] = None
     hyp_weight: float = 0.05      # Loss weight
 
-    # LR scheduler
-    lr_scheduler: str = "cosine"       # "plateau", "cosine", or "cosine_multiphase"
-    lr_patience: int = 10               # plateau only
-    lr_factor: float = 0.5              # plateau only
-    lr_warmup_epochs: int = 4           # cosine only: linear warmup epochs
-    lr_eta_min: float = 1e-6            # cosine only: minimum LR
-    # cosine_multiphase: two-phase cosine decay then constant
-    lr_phase1_end: int = 0              # end epoch for phase 1 (0 = disabled)
+    # LR scheduler: two-phase cosine decay then constant
+    lr_warmup_epochs: int = 4           # base-LR hold epochs before cosine decay
+    lr_phase1_end: int = 50             # end epoch for phase 1
     lr_phase1_min: float = 1e-6         # min LR at end of phase 1
-    lr_phase2_end: int = 0              # end epoch for phase 2
+    lr_phase2_end: int = 100            # end epoch for phase 2
     lr_phase2_min: float = 1e-8         # min LR at end of phase 2, then constant
 
     # Checkpoint

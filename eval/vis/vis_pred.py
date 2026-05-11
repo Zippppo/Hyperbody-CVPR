@@ -2,16 +2,7 @@
 Visualization script for prediction results.
 
 Usage:
-    python eval/vis/vis_pred.py --pred_dir eval/pred/lorentz_semantic --gt_dir Dataset/voxel_data --compare --output_dir docs/visualizations/pred_vis/baseline/
-    python eval/vis/vis_pred.py --pred_dir eval/pred/lorentz_semantic --gt_dir Dataset/voxel_data --compare --output_dir docs/visualizations/pred_vis/semantic_vis/
-    python eval/vis/vis_pred.py --pred_dir eval/pred/lorentz_random --gt_dir Dataset/voxel_data --compare --output_dir docs/visualizations/pred_vis/random_vis/
-    python eval/vis/vis_pred.py --pred_dir eval/pred/L_R_FZ+cls0_0.1 --gt_dir Dataset/voxel_data --compare --output_dir docs/visualizations/pred_vis/L_R_FZ+cls0_0.1/
-    python eval/vis/vis_pred.py --pred_dir eval/pred/L_S_FZ+cls0_0.1 --gt_dir Dataset/voxel_data --compare --output_dir docs/visualizations/pred_vis/L_S_FZ+cls0_0.1/
-
-python eval/vis/vis_pred.py --pred_dir eval/pred/LR-GD-M04-LRP3 --gt_dir Dataset/voxel_data --compare --output_dir docs/visualizations/pred_vis/0209-LR-GD-M04-LRP3/
-python eval/vis/vis_pred.py --pred_dir eval/pred/vis_best --gt_dir Dataset/voxel_data --compare --output_dir docs/visualizations/pred_vis/vis_best
-
-
+    python eval/vis/vis_pred.py --pred_dir eval/pred/021201-19 --gt_dir Dataset/voxel_data --compare --output_dir docs/visualizations/pred_vis/021201-19
 """
 import argparse
 import json
