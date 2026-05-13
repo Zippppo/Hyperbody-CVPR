@@ -72,6 +72,22 @@ def _apply_ignored_pair_mask(matrix: torch.Tensor, ignored_class_indices: Tuple[
     matrix.index_fill_(1, ignored_tensor, 0.0)
 
 
+def _extract_labels_from_batch(batch) -> torch.Tensor:
+    """Support both label-only batches and (input, label) dataset batches."""
+    labels = batch[-1] if isinstance(batch, (tuple, list)) else batch
+    if not torch.is_tensor(labels):
+        labels = torch.as_tensor(labels)
+
+    if labels.dim() == 4:
+        if labels.shape[0] != 1:
+            raise ValueError(
+                f"Expected batch_size=1 for labels, got label batch shape {tuple(labels.shape)}"
+            )
+        labels = labels.squeeze(0)
+
+    return labels
+
+
 def _compute_single_sample_overlap_chunked(
     labels: torch.Tensor,
     num_classes: int,
@@ -179,14 +195,22 @@ def compute_contact_matrix_from_dataset(
     class_batch_size: int = 0,
     ignored_class_indices: Optional[Iterable[int]] = None,
     show_progress: bool = False,
+    device: Optional[torch.device] = None,
 ) -> torch.Tensor:
     """Aggregate asymmetric contact matrix over all samples in a dataset."""
     ignored_class_indices = _normalize_ignored_class_indices(num_classes, ignored_class_indices)
+    device = torch.device(device) if device is not None else torch.device("cpu")
 
     global_overlap = torch.zeros((num_classes, num_classes), dtype=torch.float64)
     global_volume = torch.zeros((num_classes,), dtype=torch.float64)
 
-    loader = DataLoader(dataset, batch_size=1, shuffle=False, num_workers=num_workers)
+    loader = DataLoader(
+        dataset,
+        batch_size=1,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=device.type == "cuda",
+    )
     total = len(loader)
     last_logged_decile = -1
 
@@ -194,8 +218,11 @@ def compute_contact_matrix_from_dataset(
     if show_progress:
         iterator = tqdm(loader, total=total, desc="Contact matrix", unit="sample")
 
-    for index, (_, lbl) in enumerate(iterator):
-        labels = lbl.squeeze(0).long()
+    for index, batch in enumerate(iterator):
+        labels = _extract_labels_from_batch(batch).long().to(
+            device,
+            non_blocking=device.type == "cuda",
+        )
         overlap, volume = _compute_single_sample_overlap(
             labels=labels,
             num_classes=num_classes,

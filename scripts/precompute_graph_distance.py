@@ -1,10 +1,11 @@
-"""Precompute graph distance matrix for graph-mode curriculum mining."""
+"""Precompute S2I-Dataset contact and graph distance matrices."""
 
 import argparse
 import json
 import os
 import sys
 import time
+import hashlib
 from pathlib import Path
 
 import numpy as np
@@ -61,13 +62,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output-dir",
         type=str,
-        default="Dataset",
+        default="S2I-Dataset/info",
         help="Directory to save contact_matrix.pt and graph_distance_matrix.pt",
     )
-    parser.add_argument("--tree-file", type=str, default="Dataset/tree.json")
-    parser.add_argument("--data-dir", type=str, default="Dataset/voxel_data")
-    parser.add_argument("--split-file", type=str, default="Dataset/dataset_split.json")
-    parser.add_argument("--dataset-info", type=str, default="Dataset/dataset_info.json")
+    parser.add_argument("--tree-file", type=str, default="S2I-Dataset/info/tree.json")
+    parser.add_argument("--data-dir", type=str, default="S2I-Dataset/data")
+    parser.add_argument("--split-file", type=str, default="S2I-Dataset/info/dataset_split.json")
+    parser.add_argument("--dataset-info", type=str, default="S2I-Dataset/dataset_info.json")
+    parser.add_argument("--split", type=str, default="train", choices=["train", "val", "test"])
     parser.add_argument("--volume-size", type=int, nargs=3, default=[144, 128, 268])
     parser.add_argument("--dilation-radius", type=int, default=3)
     parser.add_argument("--lambda", dest="lambda_", type=float, default=0.4)
@@ -82,7 +84,12 @@ def parse_args() -> argparse.Namespace:
             "special_labels.outside_body_background if present"
         ),
     )
-    parser.add_argument("--class-batch-size", type=int, default=0)
+    parser.add_argument(
+        "--class-batch-size",
+        type=int,
+        default=8,
+        help="Process classes in chunks to control memory. Use 0 for full one-hot.",
+    )
     parser.add_argument("--num-workers", type=int, default=0)
     parser.add_argument(
         "--contact-matrix",
@@ -93,7 +100,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--device",
         type=str,
-        default="cuda",
+        default="auto",
         help="Device for contact matrix computation: auto, cpu, cuda, cuda:0, etc.",
     )
     return parser.parse_args()
@@ -113,6 +120,25 @@ def _load_label_ignore_index(dataset_info_path: str) -> int | None:
     return int(value) if value is not None else None
 
 
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _load_split_counts(split_file: str) -> dict:
+    with open(split_file, "r", encoding="utf-8") as f:
+        splits = json.load(f)
+    return {
+        "split_info": splits.get("split_info", {}),
+        "train_count": len(splits.get("train", [])),
+        "val_count": len(splits.get("val", [])),
+        "test_count": len(splits.get("test", [])),
+    }
+
+
 def _load_contact_matrix(path: Path) -> torch.Tensor:
     if not path.exists():
         raise FileNotFoundError(f"Contact matrix file not found: {path}")
@@ -130,11 +156,11 @@ def _compute_contact_matrix(
     dataset = LabelOnlyDataset(
         data_dir=args.data_dir,
         split_file=args.split_file,
-        split="train",
+        split=args.split,
         volume_size=tuple(args.volume_size),
         label_ignore_index=args.label_ignore_index,
     )
-    print(f"Training samples: {len(dataset)}")
+    print(f"{args.split} samples: {len(dataset)}")
     print(
         "Computing contact matrix "
         f"(radius={args.dilation_radius}, class_batch_size={args.class_batch_size})..."
@@ -181,6 +207,7 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     contact_output_path = output_dir / "contact_matrix.pt"
     graph_output_path = output_dir / "graph_distance_matrix.pt"
+    metadata_output_path = output_dir / "graph_distance_metadata.json"
 
     if args.contact_matrix and args.contact_matrix.strip():
         contact_matrix = _load_contact_matrix(Path(args.contact_matrix))
@@ -212,6 +239,37 @@ def main() -> None:
     torch.save(graph_dist_matrix.float(), graph_output_path)
     print(f"Saved contact matrix to {contact_output_path}")
     print(f"Saved graph distance matrix to {graph_output_path}")
+
+    metadata = {
+        "dataset": "S2I-Dataset",
+        "num_classes": num_classes,
+        "dataset_info": args.dataset_info,
+        "dataset_info_sha256": _sha256(Path(args.dataset_info)),
+        "tree_file": args.tree_file,
+        "tree_file_sha256": _sha256(Path(args.tree_file)),
+        "data_dir": args.data_dir,
+        "split_file": args.split_file,
+        "split_file_sha256": _sha256(Path(args.split_file)),
+        "split": args.split,
+        "split_counts": _load_split_counts(args.split_file),
+        "volume_size": list(args.volume_size),
+        "dilation_radius": args.dilation_radius,
+        "lambda": args.lambda_,
+        "epsilon": args.epsilon,
+        "class_batch_size": args.class_batch_size,
+        "label_ignore_index": args.label_ignore_index,
+        "ignored_spatial_class_indices": list(ignored_indices),
+        "contact_matrix": str(contact_output_path),
+        "graph_distance_matrix": str(graph_output_path),
+        "contact_shape": list(contact_matrix.shape),
+        "graph_distance_shape": list(graph_dist_matrix.shape),
+        "contact_nonzero_pairs": nonzero_contacts,
+        "graph_shortened_pairs": shortened_pairs,
+    }
+    with metadata_output_path.open("w", encoding="utf-8") as f:
+        json.dump(metadata, f, indent=2, ensure_ascii=False)
+        f.write("\n")
+    print(f"Saved metadata to {metadata_output_path}")
 
     if device.type == "cuda":
         peak_mb = torch.cuda.max_memory_allocated(device) / (1024 ** 2)
