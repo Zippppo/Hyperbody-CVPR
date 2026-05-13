@@ -27,8 +27,8 @@ class BodyNet(nn.Module):
     def __init__(
         self,
         # UNet3D params
-        in_channels: int = 1,
-        num_classes: int = 70,
+        in_channels: int,
+        num_classes: int,
         base_channels: int = 32,
         growth_rate: int = 32,
         dense_layers: int = 4,

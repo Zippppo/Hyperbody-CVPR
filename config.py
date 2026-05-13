@@ -6,11 +6,11 @@ import yaml
 @dataclass
 class Config:
     # Data
-    data_dir: str = "Dataset/voxel_data"
-    split_file: str = "Dataset/dataset_split.json"
-    tree_file: str = "Dataset/tree.json"
-    dataset_info_file: str = "Dataset/dataset_info.json"
-    num_classes: int = 70
+    data_dir: str = "S2I-Dataset/data"
+    split_file: str = "S2I-Dataset/info/dataset_split.json"
+    tree_file: str = "S2I-Dataset/info/tree.json"
+    dataset_info_file: str = "S2I-Dataset/dataset_info.json"
+    num_classes: int = 121
     voxel_size: float = 4.0
     volume_size: Tuple[int, int, int] = (144, 128, 268)  # X, Y, Z
 
@@ -43,7 +43,7 @@ class Config:
 
     # Graph distance: precomputed pairwise inter-class distance matrix used for
     # negative sampling weights in LorentzMatrixRankingLoss.
-    graph_distance_matrix: str = "Dataset/graph_distance_matrix.pt"
+    graph_distance_matrix: str = "S2I-Dataset/info/graph_distance_matrix.pt"
 
     # Training
     batch_size: int = 2  # per GPU

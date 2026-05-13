@@ -23,7 +23,7 @@ class LorentzLabelEmbedding(nn.Module):
 
     def __init__(
         self,
-        num_classes: int = 70,
+        num_classes: int,
         embed_dim: int = 32,
         curv: float = 1.0,
         class_depths: Optional[Dict[int, int]] = None,

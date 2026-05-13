@@ -86,7 +86,7 @@ class CombinedLoss(nn.Module):
 
     def __init__(
         self,
-        num_classes: int = 70,
+        num_classes: int,
         ce_weight: float = 0.5,
         dice_weight: float = 0.5,
         class_weights: torch.Tensor = None,
@@ -126,7 +126,7 @@ class CombinedLoss(nn.Module):
 
 def compute_class_weights(
     dataset,
-    num_classes: int = 70,
+    num_classes: int,
     num_samples: int = 100,
     method: str = "inverse_sqrt",
     cache_path: str = None,

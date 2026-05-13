@@ -5,7 +5,7 @@ from typing import Tuple, Optional
 class DiceMetric:
     """Accumulate per-class Dice scores across batches (GPU-optimized)"""
 
-    def __init__(self, num_classes: int = 70, smooth: float = 1e-5):
+    def __init__(self, num_classes: int, smooth: float = 1e-5):
         """
         Args:
             num_classes: Number of segmentation classes

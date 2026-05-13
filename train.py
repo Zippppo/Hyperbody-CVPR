@@ -28,6 +28,7 @@ from models.losses import CombinedLoss, compute_class_weights
 from models.hyperbolic.lorentz_loss import LorentzMatrixRankingLoss
 from utils.metrics import DiceMetric
 from utils.checkpoint import save_checkpoint, load_checkpoint
+from utils.validation import validate_config_consistency
 
 ##CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --nproc_per_node=4 train.py --config configs/021201-19.yaml
 def set_seed(seed: int = 42):
@@ -286,6 +287,9 @@ def main():
     # Setup distributed training (passes gpu_ids to set CUDA_VISIBLE_DEVICES)
     local_rank = setup_distributed(gpu_ids=cfg.gpu_ids)
     device = torch.device(f"cuda:{local_rank}" if torch.cuda.is_available() else "cpu")
+
+    # Validate config consistency before proceeding
+    validate_config_consistency(cfg)
 
     # Set random seed for reproducibility
     set_seed(args.seed)

@@ -25,8 +25,8 @@ from utils.surface_distance import SurfaceDistanceMetric
 def parse_args():
     parser = argparse.ArgumentParser(description="Evaluate all model predictions")
     parser.add_argument("--pred_dir", type=str, default="eval/pred", help="Predictions root directory")
-    parser.add_argument("--gt_dir", type=str, default="Dataset/voxel_data", help="Ground truth data directory")
-    parser.add_argument("--num_classes", type=int, default=70, help="Number of classes")
+    parser.add_argument("--gt_dir", type=str, default="S2I-Dataset/data", help="Ground truth data directory")
+    parser.add_argument("--num_classes", type=int, default=121, help="Number of classes")
     parser.add_argument("--model", type=str, default=None, help="Evaluate only this model (subdirectory name)")
     parser.add_argument("--output", type=str, default="eval/results/metrics.json", help="Output JSON path")
     return parser.parse_args()

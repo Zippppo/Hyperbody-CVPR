@@ -41,7 +41,7 @@ def compute_surface_distances(
 class SurfaceDistanceMetric:
     """Accumulate per-class surface distances for HD95/NSD metrics."""
 
-    def __init__(self, num_classes: int = 70, nsd_tolerance: float = 2.0):
+    def __init__(self, num_classes: int, nsd_tolerance: float = 2.0):
         self.num_classes = num_classes
         self.nsd_tolerance = nsd_tolerance
         self._all_distances: list[list[tuple[np.ndarray, np.ndarray]]] = [

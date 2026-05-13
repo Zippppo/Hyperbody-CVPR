@@ -30,3 +30,4 @@ S2I-Dataset/*
 !S2I-Dataset/tools/
 !S2I-Dataset/tools/**
 S2I-Dataset/tools/__pycache__/
+/tests/

@@ -58,8 +58,8 @@ class UNet3D(nn.Module):
 
     def __init__(
         self,
-        in_channels: int = 1,
-        num_classes: int = 70,
+        in_channels: int,
+        num_classes: int,
         base_channels: int = 32,
         growth_rate: int = 32,
         dense_layers: int = 4,
@@ -68,7 +68,7 @@ class UNet3D(nn.Module):
         """
         Args:
             in_channels: Number of input channels (1 for binary occupancy grid)
-            num_classes: Number of output classes (70 anatomical structures)
+            num_classes: Number of output segmentation classes
             base_channels: Base number of channels (doubled at each level)
             growth_rate: Dense block growth rate (channels added per layer)
             dense_layers: Number of layers in dense block
